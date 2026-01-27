@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo/bird.png" alt="llmdebug logo" width="200">
+</p>
+
 # llmdebug
 
 Structured debug snapshots for LLM-assisted debugging.
@@ -92,6 +96,16 @@ On failure, find your snapshot at `.llmdebug/latest.json`:
 - Arrays summarized with `shape` and `dtype` (not raw data)
 - Source snippet around the failing line
 - Environment info for reproducibility
+
+### Snapshot metadata (new)
+
+The snapshot includes extra fields to reduce LLM guesswork:
+- `schema_version` and `llmdebug_version` for compatibility
+- `capture_config` (frames, locals_mode, truncation limits, redaction patterns)
+- `exception` may include `cause`, `context`, and `exceptions` (ExceptionGroup)
+- Each frame may include `module`, `file_rel`, and `locals_meta` (type/size hints)
+- Pytest runs add `pytest` context (`longrepr`, `capstdout`, `capstderr`, params)
+- `env.argv` records the command-line invocation
 
 ## For Claude Code / LLM Users
 

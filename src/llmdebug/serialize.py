@@ -321,3 +321,43 @@ def serialize_locals(
     raw = json.dumps(result, ensure_ascii=False, default=str)
     raw = redact_text(raw, redactors)
     return json.loads(raw)
+
+
+def locals_metadata(local_vars: dict, cfg: SnapshotConfig) -> dict[str, dict[str, Any]]:
+    """Lightweight metadata for local variables (type + size hints)."""
+    meta: dict[str, dict[str, Any]] = {}
+
+    for i, (k, v) in enumerate(local_vars.items()):
+        if i >= cfg.max_items:
+            break
+
+        entry: dict[str, Any] = {
+            "type": f"{type(v).__module__}.{type(v).__name__}",
+        }
+
+        # Length hints for common containers/strings
+        try:
+            entry["len"] = int(len(v))  # type: ignore[arg-type]
+        except Exception:
+            pass
+
+        # Array/dataframe shape hints (redundant but quick to scan)
+        if is_array_like(v) and hasattr(v, "shape"):
+            try:
+                entry["shape"] = list(v.shape)
+            except Exception:
+                pass
+        if is_dataframe(v) and hasattr(v, "shape"):
+            try:
+                entry["shape"] = list(v.shape)
+            except Exception:
+                pass
+        if is_series(v) and hasattr(v, "shape"):
+            try:
+                entry["shape"] = list(v.shape)
+            except Exception:
+                pass
+
+        meta[str(k)] = entry
+
+    return meta
