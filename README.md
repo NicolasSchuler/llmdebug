@@ -167,6 +167,13 @@ from llmdebug import debug_snapshot, snapshot_section, get_latest_snapshot
 snapshot = get_latest_snapshot()  # Returns dict or None
 ```
 
+## Possible Improvements
+
+- Keep package version metadata in sync between `pyproject.toml` and `llmdebug.__version__`.
+- Validate `SnapshotConfig.locals_mode` values to catch typos early.
+- Make latest snapshot tests resilient on platforms where `latest.json` is a copy instead of a symlink.
+- Align capture failure logging behavior between the decorator/context manager and the pytest plugin.
+
 ## License
 
 MIT
