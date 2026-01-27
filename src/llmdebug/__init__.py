@@ -12,7 +12,7 @@ from .capture import capture_exception
 from .config import SnapshotConfig
 from .output import get_latest_snapshot
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __all__ = ["debug_snapshot", "snapshot_section", "SnapshotConfig", "get_latest_snapshot"]
 
 

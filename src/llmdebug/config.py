@@ -19,3 +19,7 @@ class SnapshotConfig:
     redact: tuple[str | Pattern[str], ...] = field(default_factory=tuple)
     include_env: bool = True
     debug: bool = False
+
+    def __post_init__(self) -> None:
+        if self.locals_mode not in {"safe", "none"}:
+            raise ValueError("locals_mode must be 'safe' or 'none'")

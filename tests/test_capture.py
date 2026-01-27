@@ -17,8 +17,8 @@ def test_decorator_captures_exception(tmp_path):
         failing_func()
 
     # Check snapshot was created
-    snapshots = list(tmp_path.glob("*.json"))
-    assert len(snapshots) == 2  # snapshot + latest.json
+    snapshots = [path for path in tmp_path.glob("*.json") if path.name != "latest.json"]
+    assert len(snapshots) == 1
 
 
 def test_context_manager_captures_exception(tmp_path):
@@ -130,3 +130,9 @@ def test_locals_mode_none_skips_locals(tmp_path):
 
     crash_frame = snapshot["frames"][0]
     assert "locals" not in crash_frame
+
+
+def test_locals_mode_invalid_raises():
+    """Test that invalid locals_mode values raise a ValueError."""
+    with pytest.raises(ValueError, match="locals_mode must be 'safe' or 'none'"):
+        debug_snapshot(locals_mode="invalid")  # type: ignore[arg-type]

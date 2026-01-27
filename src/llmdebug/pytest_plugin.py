@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 
 from .capture import capture_exception
@@ -40,8 +43,10 @@ def pytest_runtest_makereport(item, call):
     # Use test node ID as snapshot name
     name = item.nodeid.replace("/", "_").replace("::", "_")
 
-    cfg = SnapshotConfig()
+    debug = os.getenv("LLMDEBUG_DEBUG", "").lower() in {"1", "true", "yes", "on"}
+    cfg = SnapshotConfig(debug=debug)
     try:
         capture_exception(name, exc, tb, cfg)
     except Exception:
-        pass  # Silent fallback - never break test runs
+        if cfg.debug:
+            sys.stderr.write(f"llmdebug: capture failed for {name}\n")
