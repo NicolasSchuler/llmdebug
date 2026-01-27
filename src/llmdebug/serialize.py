@@ -60,8 +60,105 @@ def is_series(x: Any) -> bool:
     return type(x).__module__.startswith("pandas") and type(x).__name__ == "Series"
 
 
+def get_tensor_device(arr: Any) -> str | None:
+    """Get device string for PyTorch/JAX tensors.
+
+    Returns None for CPU (default) or if device cannot be determined.
+    Only returns non-None for non-CPU devices to highlight noteworthy info.
+    """
+    try:
+        # PyTorch: arr.device -> device(type='cuda', index=0)
+        if hasattr(arr, "device"):
+            device = arr.device
+            # PyTorch device object
+            if hasattr(device, "type"):
+                if device.type != "cpu":
+                    return str(device)
+                return None
+            # JAX SingleDeviceSharding or similar
+            device_str = str(device)
+            if "cpu" not in device_str.lower():
+                return device_str
+            return None
+        # JAX: arr.devices() -> {gpu(id=0)}
+        if hasattr(arr, "devices"):
+            devices = arr.devices()
+            if devices:
+                # Check if any non-CPU device
+                devices_str = str(devices)
+                if "cpu" not in devices_str.lower():
+                    return devices_str
+    except Exception:
+        pass
+    return None
+
+
+def get_requires_grad(arr: Any) -> bool | None:
+    """Check if tensor requires gradients (PyTorch only).
+
+    Returns True only if requires_grad is True, None otherwise.
+    """
+    try:
+        if hasattr(arr, "requires_grad") and arr.requires_grad:
+            return True
+    except Exception:
+        pass
+    return None
+
+
+def count_anomalies(arr: Any) -> dict[str, int] | None:
+    """Count NaN and Inf values in tensor.
+
+    Returns dict with counts only if anomalies exist, None otherwise.
+    Works with NumPy, PyTorch, and JAX arrays.
+    """
+    try:
+        module = type(arr).__module__
+
+        nan_count = 0
+        inf_count = 0
+
+        if module.startswith("torch"):
+            # PyTorch
+            import torch  # type: ignore[import-not-found]
+
+            nan_count = int(torch.isnan(arr).sum().item())
+            inf_count = int(torch.isinf(arr).sum().item())
+        elif module.startswith("jax"):
+            # JAX
+            import jax.numpy as jnp  # type: ignore[import-not-found]
+
+            nan_count = int(jnp.isnan(arr).sum())
+            inf_count = int(jnp.isinf(arr).sum())
+        elif module.startswith("numpy"):
+            # NumPy
+            import numpy as np
+
+            nan_count = int(np.isnan(arr).sum())
+            inf_count = int(np.isinf(arr).sum())
+        else:
+            return None
+
+        if nan_count > 0 or inf_count > 0:
+            result: dict[str, int] = {}
+            if nan_count > 0:
+                result["nan"] = nan_count
+            if inf_count > 0:
+                result["inf"] = inf_count
+            return result
+    except Exception:
+        pass
+    return None
+
+
 def summarize_array(arr: Any, cfg: SnapshotConfig) -> dict:
-    """Summarize an array-like object."""
+    """Summarize an array-like object.
+
+    Returns basic info (type, shape, dtype, head) plus ML-specific metadata:
+    - device: only if non-CPU (highlights CUDA/TPU tensors)
+    - requires_grad: only if True (highlights trainable tensors)
+    - anomalies: NaN/Inf counts only if present (highlights corruption)
+    """
     type_name = f"{type(arr).__module__}.{type(arr).__name__}"
     summary: dict[str, Any] = {"__array__": type_name}
 
@@ -86,6 +183,19 @@ def summarize_array(arr: Any, cfg: SnapshotConfig) -> dict:
             summary["head_truncated"] = True
     except Exception:
         pass
+
+    # ML-specific metadata (only include if noteworthy)
+    device = get_tensor_device(arr)
+    if device is not None:
+        summary["device"] = device
+
+    requires_grad = get_requires_grad(arr)
+    if requires_grad:
+        summary["requires_grad"] = True
+
+    anomalies = count_anomalies(arr)
+    if anomalies:
+        summary["anomalies"] = anomalies
 
     return summary
 
