@@ -1,6 +1,6 @@
 [project]
 name = "llmdebug"
-version = "0.1.0"
+version = "0.1.1"
 description = "Structured debug snapshots for LLM-assisted debugging"
 readme = "README.md"
 license = { text = "MIT" }
