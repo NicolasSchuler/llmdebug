@@ -12,7 +12,7 @@ from .capture import capture_exception
 from .config import SnapshotConfig
 from .output import get_latest_snapshot
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __all__ = ["debug_snapshot", "snapshot_section", "SnapshotConfig", "get_latest_snapshot"]
 
 
@@ -22,6 +22,7 @@ def debug_snapshot(
     out_dir: str = ".llmdebug",
     frames: int = 5,
     source_context: int = 3,
+    source_mode: str = "all",
     locals_mode: str = "safe",
     max_str: int = 500,
     max_items: int = 50,
@@ -41,7 +42,8 @@ def debug_snapshot(
         out_dir: Output directory for snapshots
         frames: Number of stack frames to capture
         source_context: Lines of source before/after crash
-        locals_mode: "safe" to capture locals, "none" to skip
+        source_mode: "all" | "crash_only" | "none"
+        locals_mode: "safe" | "meta" | "none"
         max_str: Max string length before truncation
         max_items: Max collection items to capture
         redact: Regex patterns to redact from output
@@ -52,6 +54,7 @@ def debug_snapshot(
         out_dir=out_dir,
         frames=frames,
         source_context=source_context,
+        source_mode=source_mode,
         locals_mode=locals_mode,
         max_str=max_str,
         max_items=max_items,
@@ -89,6 +92,7 @@ def snapshot_section(
     out_dir: str = ".llmdebug",
     frames: int = 5,
     source_context: int = 3,
+    source_mode: str = "all",
     locals_mode: str = "safe",
     max_str: int = 500,
     max_items: int = 50,
@@ -106,6 +110,7 @@ def snapshot_section(
         out_dir=out_dir,
         frames=frames,
         source_context=source_context,
+        source_mode=source_mode,
         locals_mode=locals_mode,
         max_str=max_str,
         max_items=max_items,

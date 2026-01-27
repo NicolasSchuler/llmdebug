@@ -66,9 +66,11 @@ def test_snapshot_contains_correct_structure(tmp_path):
     assert snapshot["name"] == "failing_with_locals"
     assert "timestamp_utc" in snapshot
     assert snapshot["exception"]["type"] == "ValueError"
+    assert snapshot["exception"]["qualified_type"] == "builtins.ValueError"
     assert snapshot["exception"]["message"] == "test error message"
     assert "traceback" in snapshot
     assert "frames" in snapshot
+    assert snapshot["crash_frame_index"] == 0
     assert "env" in snapshot
 
     # Check frames structure (crash site should be first)
@@ -132,7 +134,72 @@ def test_locals_mode_none_skips_locals(tmp_path):
     assert "locals" not in crash_frame
 
 
+def test_locals_mode_meta_captures_metadata(tmp_path):
+    """Test that locals_mode='meta' captures locals_meta only."""
+
+    @debug_snapshot(out_dir=str(tmp_path), locals_mode="meta")
+    def failing_meta():
+        secret = "password123"  # noqa: F841
+        items = [1, 2, 3]  # noqa: F841
+        raise ValueError("error")
+
+    with pytest.raises(ValueError):
+        failing_meta()
+
+    snapshot = get_latest_snapshot(str(tmp_path))
+    assert snapshot is not None
+
+    crash_frame = snapshot["frames"][0]
+    assert "locals" not in crash_frame
+    assert "locals_meta" in crash_frame
+
+
+def test_source_mode_crash_only(tmp_path):
+    """Test that source is captured only for crash frame."""
+
+    @debug_snapshot(out_dir=str(tmp_path), frames=2, source_mode="crash_only")
+    def outer():
+        def inner():
+            raise RuntimeError("boom")
+
+        inner()
+
+    with pytest.raises(RuntimeError):
+        outer()
+
+    snapshot = get_latest_snapshot(str(tmp_path))
+    assert snapshot is not None
+
+    assert len(snapshot["frames"]) == 2
+    crash_frame = snapshot["frames"][0]
+    parent_frame = snapshot["frames"][1]
+    assert "source" in crash_frame
+    assert "source" not in parent_frame
+
+
+def test_exception_args_and_notes(tmp_path):
+    """Test that exception args and notes are captured."""
+
+    @debug_snapshot(out_dir=str(tmp_path))
+    def failing_with_args():
+        exc = ValueError("a", "b")
+        if hasattr(exc, "add_note"):
+            exc.add_note("note")
+        raise exc
+
+    with pytest.raises(ValueError):
+        failing_with_args()
+
+    snapshot = get_latest_snapshot(str(tmp_path))
+    assert snapshot is not None
+
+    exc = snapshot["exception"]
+    assert exc["args"] == ["a", "b"]
+    if hasattr(BaseException(), "add_note"):
+        assert "notes" in exc
+
+
 def test_locals_mode_invalid_raises():
     """Test that invalid locals_mode values raise a ValueError."""
-    with pytest.raises(ValueError, match="locals_mode must be 'safe' or 'none'"):
+    with pytest.raises(ValueError, match="locals_mode must be 'safe', 'meta', or 'none'"):
         debug_snapshot(locals_mode="invalid")  # type: ignore[arg-type]

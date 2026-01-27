@@ -65,6 +65,7 @@ def pytest_runtest_makereport(item, call):
         "capstdout": getattr(report, "capstdout", None),
         "capstderr": getattr(report, "capstderr", None),
         "params": params,
+        "repro": [sys.executable, "-m", "pytest", report.nodeid, "-q"],
     }
     try:
         capture_exception(name, exc, tb, cfg, extra={"pytest": pytest_context})

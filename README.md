@@ -101,10 +101,12 @@ On failure, find your snapshot at `.llmdebug/latest.json`:
 
 The snapshot includes extra fields to reduce LLM guesswork:
 - `schema_version` and `llmdebug_version` for compatibility
+- `crash_frame_index` to mark the exact crash frame in `frames`
 - `capture_config` (frames, locals_mode, truncation limits, redaction patterns)
-- `exception` may include `cause`, `context`, and `exceptions` (ExceptionGroup)
+- `exception` may include `qualified_type`, `args`, `notes`, `cause`, `context`, and `exceptions` (ExceptionGroup)
 - Each frame may include `module`, `file_rel`, and `locals_meta` (type/size hints)
-- Pytest runs add `pytest` context (`longrepr`, `capstdout`, `capstderr`, params)
+- Frames may include `locals_truncated` and `locals_truncated_keys` when locals are omitted
+- Pytest runs add `pytest` context (`longrepr`, `capstdout`, `capstderr`, params, `repro`)
 - `env.argv` records the command-line invocation
 
 ## For Claude Code / LLM Users
@@ -152,7 +154,8 @@ If locals show the symptom but not the cause:
     out_dir=".llmdebug",      # Output directory
     frames=5,                  # Stack frames to capture
     source_context=3,          # Lines of source before/after crash
-    locals_mode="safe",        # "safe" or "none" (skip locals)
+    source_mode="all",         # "all" | "crash_only" | "none"
+    locals_mode="safe",        # "safe" | "meta" | "none"
     max_str=500,               # Truncate long strings
     max_items=50,              # Truncate large collections
     redact=[r"api_key=.*"],    # Regex patterns to redact

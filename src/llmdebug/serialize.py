@@ -306,7 +306,20 @@ def serialize_locals(
     local_vars: dict, cfg: SnapshotConfig, redactors: list[Pattern[str]]
 ) -> dict:
     """Serialize local variables with redaction."""
+    result, _, _ = serialize_locals_with_stats(local_vars, cfg, redactors)
+    return result
+
+
+def serialize_locals_with_stats(
+    local_vars: dict, cfg: SnapshotConfig, redactors: list[Pattern[str]]
+) -> tuple[dict[str, Any], bool, int]:
+    """Serialize local variables with redaction and truncation stats."""
     result: dict[str, Any] = {}
+    total_count: int | None = None
+    try:
+        total_count = len(local_vars)
+    except Exception:
+        total_count = None
 
     for i, (k, v) in enumerate(local_vars.items()):
         if i >= cfg.max_items:
@@ -320,7 +333,15 @@ def serialize_locals(
     # Apply redaction
     raw = json.dumps(result, ensure_ascii=False, default=str)
     raw = redact_text(raw, redactors)
-    return json.loads(raw)
+    cleaned = json.loads(raw)
+
+    truncated = False
+    truncated_keys = 0
+    if total_count is not None and total_count > cfg.max_items:
+        truncated = True
+        truncated_keys = total_count - cfg.max_items
+
+    return cleaned, truncated, truncated_keys
 
 
 def locals_metadata(local_vars: dict, cfg: SnapshotConfig) -> dict[str, dict[str, Any]]:

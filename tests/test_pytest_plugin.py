@@ -1,5 +1,6 @@
 """Tests for pytest plugin."""
 
+import json
 import subprocess
 import sys
 
@@ -33,6 +34,16 @@ def test_failing():
 
     snapshots = list(llmdebug_dir.glob("*.json"))
     assert len(snapshots) >= 1  # At least the snapshot (and maybe latest.json)
+
+    # Check that repro command is present
+    latest = llmdebug_dir / "latest.json"
+    assert latest.exists() or latest.is_symlink()
+    snapshot = json.loads(latest.read_text(encoding="utf-8"))
+    repro = snapshot.get("pytest", {}).get("repro")
+    assert isinstance(repro, list)
+    assert "-m" in repro
+    assert "pytest" in repro
+    assert "test_example.py::test_failing" in repro
 
 
 def test_no_snapshot_marker(tmp_path):

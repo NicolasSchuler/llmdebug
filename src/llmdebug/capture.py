@@ -13,7 +13,12 @@ from typing import Any
 
 from .config import SnapshotConfig
 from .output import write_bundle
-from .serialize import compile_redactors, locals_metadata, serialize_locals, truncate_str
+from .serialize import (
+    compile_redactors,
+    locals_metadata,
+    serialize_locals_with_stats,
+    truncate_str,
+)
 
 
 SCHEMA_VERSION = "1.0"
@@ -36,6 +41,7 @@ def _serialize_config(cfg: SnapshotConfig) -> dict[str, Any]:
         "out_dir": cfg.out_dir,
         "frames": cfg.frames,
         "source_context": cfg.source_context,
+        "source_mode": cfg.source_mode,
         "locals_mode": cfg.locals_mode,
         "max_str": cfg.max_str,
         "max_items": cfg.max_items,
@@ -56,13 +62,35 @@ def _summarize_exception(
     if seen is None:
         seen = set()
     if id(exc) in seen:
-        return {"type": type(exc).__name__, "message": "...[CYCLE]"}
+        exc_type = type(exc)
+        return {
+            "type": exc_type.__name__,
+            "qualified_type": f"{exc_type.__module__}.{exc_type.__name__}",
+            "message": "...[CYCLE]",
+        }
     seen.add(id(exc))
 
+    exc_type = type(exc)
     summary: dict[str, Any] = {
-        "type": type(exc).__name__,
+        "type": exc_type.__name__,
+        "qualified_type": f"{exc_type.__module__}.{exc_type.__name__}",
         "message": truncate_str(str(exc), cfg.max_str),
     }
+    try:
+        if exc.args:
+            summary["args"] = [
+                truncate_str(str(a), cfg.max_str) for a in list(exc.args)[: cfg.max_items]
+            ]
+    except Exception:
+        pass
+    try:
+        notes = getattr(exc, "__notes__", None)
+        if notes:
+            summary["notes"] = [
+                truncate_str(str(n), cfg.max_str) for n in list(notes)[: cfg.max_items]
+            ]
+    except Exception:
+        pass
 
     if depth >= max_depth:
         return summary
@@ -129,7 +157,7 @@ def get_source_snippet(filename: str, lineno: int, ctx: int) -> dict[str, Any]:
 
 def collect_frames(tb, cfg: SnapshotConfig) -> list[dict[str, Any]]:
     """Collect stack frames from traceback."""
-    redactors = compile_redactors(cfg.redact)
+    redactors = compile_redactors(cfg.redact) if cfg.locals_mode == "safe" else []
     frames_out = []
 
     # Extract frame info
@@ -143,7 +171,8 @@ def collect_frames(tb, cfg: SnapshotConfig) -> list[dict[str, Any]]:
         cur = cur.tb_next
     tb_list = tb_list[-cfg.frames :]
 
-    for tb_item, ex_item in zip(tb_list, extracted, strict=True):
+    total_frames = len(tb_list)
+    for i, (tb_item, ex_item) in enumerate(zip(tb_list, extracted, strict=True)):
         frame = tb_item.tb_frame
         lineno = ex_item.lineno or 0
         file_rel = None
@@ -162,12 +191,35 @@ def collect_frames(tb, cfg: SnapshotConfig) -> list[dict[str, Any]]:
             "function": ex_item.name,
             "module": frame.f_globals.get("__name__"),
             "code": ex_item.line,
-            "source": get_source_snippet(ex_item.filename, lineno, cfg.source_context),
         }
 
+        if cfg.source_mode == "all":
+            frame_dict["source"] = get_source_snippet(
+                ex_item.filename, lineno, cfg.source_context
+            )
+        elif cfg.source_mode == "crash_only" and i == total_frames - 1:
+            frame_dict["source"] = get_source_snippet(
+                ex_item.filename, lineno, cfg.source_context
+            )
+
         if cfg.locals_mode == "safe":
-            frame_dict["locals"] = serialize_locals(frame.f_locals, cfg, redactors)
+            locals_dict, truncated, truncated_keys = serialize_locals_with_stats(
+                frame.f_locals, cfg, redactors
+            )
+            frame_dict["locals"] = locals_dict
             frame_dict["locals_meta"] = locals_metadata(frame.f_locals, cfg)
+            if truncated:
+                frame_dict["locals_truncated"] = True
+                frame_dict["locals_truncated_keys"] = truncated_keys
+        elif cfg.locals_mode == "meta":
+            frame_dict["locals_meta"] = locals_metadata(frame.f_locals, cfg)
+            try:
+                total_locals = len(frame.f_locals)
+            except Exception:
+                total_locals = None
+            if total_locals is not None and total_locals > cfg.max_items:
+                frame_dict["locals_truncated"] = True
+                frame_dict["locals_truncated_keys"] = total_locals - cfg.max_items
 
         frames_out.append(frame_dict)
 
@@ -184,15 +236,18 @@ def capture_exception(
     extra: dict[str, Any] | None = None,
 ) -> Path:
     """Capture exception details and write snapshot."""
+    frames = collect_frames(tb, cfg)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "name": name,
         "timestamp_utc": dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "exception": _summarize_exception(exc, cfg),
         "traceback": "".join(traceback.format_exception(type(exc), exc, tb)),
-        "frames": collect_frames(tb, cfg),
+        "frames": frames,
         "capture_config": _serialize_config(cfg),
     }
+    if frames:
+        payload["crash_frame_index"] = 0
 
     if cfg.include_env:
         payload["env"] = get_env_info(cfg)

@@ -13,7 +13,8 @@ class SnapshotConfig:
     out_dir: str = ".llmdebug"
     frames: int = 5
     source_context: int = 3
-    locals_mode: str = "safe"  # "safe" | "none"
+    source_mode: str = "all"  # "all" | "crash_only" | "none"
+    locals_mode: str = "safe"  # "safe" | "meta" | "none"
     max_str: int = 500
     max_items: int = 50
     redact: tuple[str | Pattern[str], ...] = field(default_factory=tuple)
@@ -21,5 +22,7 @@ class SnapshotConfig:
     debug: bool = False
 
     def __post_init__(self) -> None:
-        if self.locals_mode not in {"safe", "none"}:
-            raise ValueError("locals_mode must be 'safe' or 'none'")
+        if self.locals_mode not in {"safe", "meta", "none"}:
+            raise ValueError("locals_mode must be 'safe', 'meta', or 'none'")
+        if self.source_mode not in {"all", "crash_only", "none"}:
+            raise ValueError("source_mode must be 'all', 'crash_only', or 'none'")
