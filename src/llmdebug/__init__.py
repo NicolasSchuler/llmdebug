@@ -29,6 +29,7 @@ def debug_snapshot(
     redact: Iterable[str | Pattern[str]] = (),
     include_env: bool = True,
     debug: bool = False,
+    max_snapshots: int = 50,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that captures debug snapshots on exception.
 
@@ -49,6 +50,7 @@ def debug_snapshot(
         redact: Regex patterns to redact from output
         include_env: Include Python/platform info
         debug: Warn on capture failure instead of silent
+        max_snapshots: Max snapshots to keep (0 = unlimited)
     """
     cfg = SnapshotConfig(
         out_dir=out_dir,
@@ -61,6 +63,7 @@ def debug_snapshot(
         redact=tuple(redact),
         include_env=include_env,
         debug=debug,
+        max_snapshots=max_snapshots,
     )
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -99,6 +102,7 @@ def snapshot_section(
     redact: Iterable[str | Pattern[str]] = (),
     include_env: bool = True,
     debug: bool = False,
+    max_snapshots: int = 50,
 ):
     """Context manager that captures debug snapshots on exception.
 
@@ -117,6 +121,7 @@ def snapshot_section(
         redact=tuple(redact),
         include_env=include_env,
         debug=debug,
+        max_snapshots=max_snapshots,
     )
     try:
         yield

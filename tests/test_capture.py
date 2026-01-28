@@ -184,7 +184,7 @@ def test_exception_args_and_notes(tmp_path):
     def failing_with_args():
         exc = ValueError("a", "b")
         if hasattr(exc, "add_note"):
-            exc.add_note("note")
+            exc.add_note("note")  # pyright: ignore[reportAttributeAccessIssue]
         raise exc
 
     with pytest.raises(ValueError):

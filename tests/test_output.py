@@ -69,3 +69,65 @@ def test_atomic_write(tmp_path):
     # JSON should be valid
     content = json.loads(json_path.read_text())
     assert content["name"] == "atomic_test"
+
+
+def test_snapshot_cleanup(tmp_path):
+    """Test that old snapshots are cleaned up when max_snapshots is exceeded."""
+    import time
+
+    cfg = SnapshotConfig(out_dir=str(tmp_path), max_snapshots=3)
+
+    # Create 5 snapshots
+    for i in range(5):
+        payload = {
+            "name": f"snapshot_{i}",
+            "frames": [],
+            "traceback": f"traceback {i}",
+        }
+        write_bundle(payload, cfg)
+        time.sleep(0.01)  # Ensure different timestamps
+
+    # Should only have 3 snapshots (+ latest.json)
+    json_files = [p for p in tmp_path.glob("*.json") if p.name != "latest.json"]
+    assert len(json_files) == 3
+
+    # The newest snapshots should be kept (snapshot_2, snapshot_3, snapshot_4)
+    names = sorted(json.loads(f.read_text())["name"] for f in json_files)
+    assert names == ["snapshot_2", "snapshot_3", "snapshot_4"]
+
+
+def test_snapshot_cleanup_unlimited(tmp_path):
+    """Test that max_snapshots=0 means unlimited."""
+    cfg = SnapshotConfig(out_dir=str(tmp_path), max_snapshots=0)
+
+    # Create 10 snapshots
+    for i in range(10):
+        payload = {"name": f"snapshot_{i}", "frames": []}
+        write_bundle(payload, cfg)
+
+    # All 10 should exist
+    json_files = [p for p in tmp_path.glob("*.json") if p.name != "latest.json"]
+    assert len(json_files) == 10
+
+
+def test_snapshot_cleanup_removes_traceback_files(tmp_path):
+    """Test that traceback files are also cleaned up."""
+    import time
+
+    cfg = SnapshotConfig(out_dir=str(tmp_path), max_snapshots=2)
+
+    for i in range(4):
+        payload = {
+            "name": f"snap_{i}",
+            "frames": [],
+            "traceback": f"tb {i}",
+        }
+        write_bundle(payload, cfg)
+        time.sleep(0.01)
+
+    # Should have 2 JSON files and 2 traceback files
+    json_files = [p for p in tmp_path.glob("*.json") if p.name != "latest.json"]
+    tb_files = list(tmp_path.glob("*.traceback.txt"))
+
+    assert len(json_files) == 2
+    assert len(tb_files) == 2

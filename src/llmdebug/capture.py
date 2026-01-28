@@ -95,7 +95,7 @@ def _summarize_exception(
         return summary
 
     if BaseExceptionGroup is not None and isinstance(exc, BaseExceptionGroup):
-        exceptions = list(exc.exceptions)
+        exceptions = list(exc.exceptions)  # pyright: ignore[reportAttributeAccessIssue]
         limit = min(len(exceptions), cfg.max_items)
         summary["is_exception_group"] = True
         summary["exceptions"] = [

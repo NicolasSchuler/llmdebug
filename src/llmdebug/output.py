@@ -41,6 +41,36 @@ def _update_latest_symlink(out_dir: Path, target_name: str) -> None:
             pass
 
 
+def _cleanup_old_snapshots(out_dir: Path, max_snapshots: int) -> None:
+    """Remove old snapshots beyond the limit."""
+    if max_snapshots <= 0:
+        return  # Unlimited
+
+    # Find all snapshot JSON files (exclude latest.json)
+    snapshots = [
+        p for p in out_dir.glob("*.json")
+        if p.name != "latest.json" and not p.name.endswith(".tmp")
+    ]
+
+    if len(snapshots) <= max_snapshots:
+        return
+
+    # Sort by modification time (oldest first)
+    snapshots.sort(key=lambda p: p.stat().st_mtime)
+
+    # Delete oldest snapshots beyond the limit
+    to_delete = snapshots[: len(snapshots) - max_snapshots]
+    for snap in to_delete:
+        try:
+            snap.unlink()
+            # Also delete associated traceback file
+            tb_file = snap.with_suffix("").with_suffix(".traceback.txt")
+            if tb_file.exists():
+                tb_file.unlink()
+        except Exception:
+            pass  # Best effort cleanup
+
+
 def write_bundle(payload: dict[str, Any], cfg: SnapshotConfig) -> Path:
     """Write snapshot bundle to disk."""
     out_dir = Path(cfg.out_dir)
@@ -62,6 +92,9 @@ def write_bundle(payload: dict[str, Any], cfg: SnapshotConfig) -> Path:
     if "traceback" in payload:
         tb_path = out_dir / f"{base}.traceback.txt"
         tb_path.write_text(payload["traceback"], encoding="utf-8")
+
+    # Cleanup old snapshots
+    _cleanup_old_snapshots(out_dir, cfg.max_snapshots)
 
     return json_path
 

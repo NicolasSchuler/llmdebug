@@ -20,9 +20,12 @@ class SnapshotConfig:
     redact: tuple[str | Pattern[str], ...] = field(default_factory=tuple)
     include_env: bool = True
     debug: bool = False
+    max_snapshots: int = 50  # 0 = unlimited
 
     def __post_init__(self) -> None:
         if self.locals_mode not in {"safe", "meta", "none"}:
             raise ValueError("locals_mode must be 'safe', 'meta', or 'none'")
         if self.source_mode not in {"all", "crash_only", "none"}:
             raise ValueError("source_mode must be 'all', 'crash_only', or 'none'")
+        if self.max_snapshots < 0:
+            raise ValueError("max_snapshots must be >= 0 (0 = unlimited)")
