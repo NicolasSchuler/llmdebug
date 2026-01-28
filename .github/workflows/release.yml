@@ -14,7 +14,7 @@ jobs:
           fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v3
-      - run: uv sync --dev
+      - run: uv sync --extra dev
       - run: uv run pytest
 
   release:
@@ -37,7 +37,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --extra dev
 
       - name: Python Semantic Release
         id: release
