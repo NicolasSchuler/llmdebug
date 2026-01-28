@@ -20,7 +20,6 @@ from .serialize import (
     truncate_str,
 )
 
-
 SCHEMA_VERSION = "1.0"
 
 

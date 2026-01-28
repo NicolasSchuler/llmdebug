@@ -7,10 +7,9 @@ import sys
 
 import pytest
 
-from .serialize import safe_repr
-
 from .capture import capture_exception
 from .config import SnapshotConfig
+from .serialize import safe_repr
 
 
 def pytest_configure(config):

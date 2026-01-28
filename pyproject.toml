@@ -27,6 +27,7 @@ dev = [
     "numpy>=1.20",
     "ruff>=0.1",
     "pyright>=1.1",
+    "python-semantic-release>=9.0",
 ]
 
 [project.urls]
@@ -57,3 +58,18 @@ select = ["E", "F", "I", "UP", "B"]
 include = ["src", "tests"]
 pythonVersion = "3.10"
 typeCheckingMode = "standard"
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = ["src/llmdebug/__init__.py:__version__"]
+branch = "main"
+build_command = "uv build --no-sources"
+commit_message = "chore(release): {version}"
+
+[tool.semantic_release.changelog]
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "style", "test"]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]

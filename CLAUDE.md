@@ -44,3 +44,43 @@ This replaces:
 ```
 fail → guess patch → rerun → repeat (the LLM roulette)
 ```
+
+## Release Workflow
+
+This project uses **python-semantic-release (PSR)** for automated releases.
+
+### Conventional Commits
+
+Use conventional commit messages - PSR parses them to determine version bumps:
+
+| Commit Type | Example | Version Bump |
+|-------------|---------|--------------|
+| `feat:` | `feat: add GPU memory tracking` | Minor (0.1.4 → 0.2.0) |
+| `fix:` | `fix: handle empty arrays` | Patch (0.1.4 → 0.1.5) |
+| `perf:` | `perf: optimize serialization` | Patch |
+| `feat!:` or `BREAKING CHANGE:` | `feat!: change API` | Major (0.1.4 → 1.0.0) |
+| `docs:`, `test:`, `chore:` | `docs: update README` | None |
+
+Format: `<type>(<optional scope>): <description>`
+
+### How Releases Work
+
+1. Push commits to `main` with conventional commit messages
+2. GitHub Actions runs CI (tests, lint, typecheck)
+3. Release workflow analyzes commits since last tag
+4. If releasable commits found: bumps version, updates CHANGELOG.md, creates tag, publishes to PyPI
+
+### Manual Commands
+
+```bash
+# Preview what would be released (dry run)
+uv run semantic-release version --noop
+
+# Check current version
+uv run semantic-release version --print
+```
+
+### CI/CD Files
+
+- `.github/workflows/ci.yml` - Runs on push/PR: tests, ruff, pyright
+- `.github/workflows/release.yml` - Runs on main: auto-release to PyPI
