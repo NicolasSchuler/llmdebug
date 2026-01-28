@@ -65,6 +65,7 @@ version_variables = ["src/llmdebug/__init__.py:__version__"]
 branch = "main"
 build_command = "uv build --no-sources"
 commit_message = "chore(release): {version}"
+major_on_zero = false
 
 [tool.semantic_release.changelog]
 changelog_file = "CHANGELOG.md"
