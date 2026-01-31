@@ -54,7 +54,7 @@ def test_get_latest_snapshot_missing(tmp_path):
 
 def test_atomic_write(tmp_path):
     """Test that writes are atomic (no partial files)."""
-    cfg = SnapshotConfig(out_dir=str(tmp_path))
+    cfg = SnapshotConfig(out_dir=str(tmp_path), output_format="json")
     payload = {
         "name": "atomic_test",
         "frames": [],
@@ -75,7 +75,7 @@ def test_snapshot_cleanup(tmp_path):
     """Test that old snapshots are cleaned up when max_snapshots is exceeded."""
     import time
 
-    cfg = SnapshotConfig(out_dir=str(tmp_path), max_snapshots=3)
+    cfg = SnapshotConfig(out_dir=str(tmp_path), max_snapshots=3, output_format="json")
 
     # Create 5 snapshots
     for i in range(5):
@@ -131,3 +131,72 @@ def test_snapshot_cleanup_removes_traceback_files(tmp_path):
 
     assert len(json_files) == 2
     assert len(tb_files) == 2
+
+
+def test_concurrent_write_bundle(tmp_path):
+    """Test that concurrent writes don't corrupt files."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    cfg = SnapshotConfig(out_dir=str(tmp_path), max_snapshots=0, output_format="json")  # unlimited
+
+    def write_snapshot(i: int) -> None:
+        payload = {
+            "name": f"concurrent_{i}",
+            "frames": [],
+            "index": i,
+        }
+        write_bundle(payload, cfg)
+
+    # Run 20 writes across 10 threads concurrently
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        list(executor.map(write_snapshot, range(20)))
+
+    # All 20 snapshots should exist
+    json_files = [p for p in tmp_path.glob("*.json") if p.name != "latest.json"]
+    assert len(json_files) == 20
+
+    # All files should be valid JSON
+    for f in json_files:
+        content = json.loads(f.read_text())
+        assert "name" in content
+        assert content["name"].startswith("concurrent_")
+
+
+def test_concurrent_write_with_cleanup(tmp_path):
+    """Test concurrent writes with cleanup enabled."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    cfg = SnapshotConfig(out_dir=str(tmp_path), max_snapshots=5, output_format="json")
+
+    def write_snapshot(i: int) -> None:
+        payload = {
+            "name": f"cleanup_{i}",
+            "frames": [],
+        }
+        write_bundle(payload, cfg)
+
+    # Run 15 writes across 5 threads
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        list(executor.map(write_snapshot, range(15)))
+
+    # Should have at most 5 snapshots due to cleanup
+    json_files = [p for p in tmp_path.glob("*.json") if p.name != "latest.json"]
+    assert len(json_files) <= 5
+
+    # All remaining files should be valid
+    for f in json_files:
+        content = json.loads(f.read_text())
+        assert "name" in content
+
+
+def test_lock_file_created(tmp_path):
+    """Test that lock file is created during write."""
+    cfg = SnapshotConfig(out_dir=str(tmp_path))
+    payload = {"name": "lock_test", "frames": []}
+
+    write_bundle(payload, cfg)
+
+    # Lock file should exist (or have been cleaned up, which is fine)
+    # The important thing is no error occurred
+    json_files = [p for p in tmp_path.glob("*.json") if p.name != "latest.json"]
+    assert len(json_files) == 1

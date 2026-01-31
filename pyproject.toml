@@ -19,15 +19,19 @@ classifiers = [
     "Topic :: Software Development :: Debuggers",
     "Framework :: Pytest",
 ]
-dependencies = []
+dependencies = ["filelock>=3.0"]
 
 [project.optional-dependencies]
+toon = ["toons>=0.1"]
 dev = [
     "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-benchmark>=4.0",
     "numpy>=1.20",
     "ruff>=0.1",
     "pyright>=1.1",
     "python-semantic-release>=9.0",
+    "toons>=0.1",  # For testing TOON format
 ]
 
 [project.urls]

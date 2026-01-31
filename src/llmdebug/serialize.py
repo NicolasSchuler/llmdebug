@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import itertools
 import json
 import re
 from re import Pattern
@@ -151,6 +152,70 @@ def count_anomalies(arr: Any) -> dict[str, int] | None:
     return None
 
 
+def compute_array_stats(arr: Any) -> dict[str, float] | None:
+    """Compute min/max/mean/std statistics for numeric arrays.
+
+    Returns:
+        Dict with statistics rounded to 6 decimal places, or None if not applicable.
+        Returns None for empty arrays, non-numeric dtypes, or on error.
+    """
+    try:
+        module = type(arr).__module__
+
+        # Check if numeric dtype
+        dtype_str = str(getattr(arr, "dtype", ""))
+        # Complex types are intentionally excluded: "min/max/mean/std" are ambiguous
+        # without choosing a projection (real/imag/magnitude), and converting to float
+        # would silently drop information.
+        if not any(t in dtype_str for t in ("float", "int", "uint")):
+            return None
+
+        # Check for empty array
+        if hasattr(arr, "size") and arr.size == 0:
+            return None
+
+        if module.startswith("torch"):
+            # PyTorch - move to CPU for stats
+            import torch  # type: ignore[import-not-found]
+
+            arr_cpu = arr.detach().cpu().float()
+            return {
+                "min": round(float(torch.min(arr_cpu).item()), 6),
+                "max": round(float(torch.max(arr_cpu).item()), 6),
+                "mean": round(float(torch.mean(arr_cpu).item()), 6),
+                # Match NumPy/JAX default semantics (population std, not unbiased).
+                "std": round(float(torch.std(arr_cpu, unbiased=False).item()), 6),
+            }
+        elif module.startswith("jax"):
+            # JAX
+            import jax.numpy as jnp  # type: ignore[import-not-found]
+
+            arr_float = arr.astype(jnp.float32)
+            return {
+                "min": round(float(jnp.min(arr_float)), 6),
+                "max": round(float(jnp.max(arr_float)), 6),
+                "mean": round(float(jnp.mean(arr_float)), 6),
+                "std": round(float(jnp.std(arr_float)), 6),
+            }
+        elif module.startswith(("numpy", "cupy")):
+            # NumPy/CuPy
+            import numpy as np
+
+            # Handle CuPy by converting to numpy
+            if module.startswith("cupy"):
+                arr = arr.get()
+            arr_float = arr.astype(np.float64)
+            return {
+                "min": round(float(np.min(arr_float)), 6),
+                "max": round(float(np.max(arr_float)), 6),
+                "mean": round(float(np.mean(arr_float)), 6),
+                "std": round(float(np.std(arr_float)), 6),
+            }
+    except Exception:
+        pass
+    return None
+
+
 def summarize_array(arr: Any, cfg: SnapshotConfig) -> dict:
     """Summarize an array-like object.
 
@@ -196,6 +261,12 @@ def summarize_array(arr: Any, cfg: SnapshotConfig) -> dict:
     anomalies = count_anomalies(arr)
     if anomalies:
         summary["anomalies"] = anomalies
+
+    # Optional statistical summaries
+    if cfg.include_array_stats:
+        stats = compute_array_stats(arr)
+        if stats:
+            summary["stats"] = stats
 
     return summary
 
@@ -272,9 +343,19 @@ def to_jsonlike(x: Any, cfg: SnapshotConfig, depth: int = 0) -> JsonLike:
 
     # Collections
     if isinstance(x, (list, tuple, set, frozenset)):
-        items = list(x)[: cfg.max_items]
+        truncated = False
+
+        if isinstance(x, (list, tuple)):
+            items = x[: cfg.max_items + 1]
+        else:
+            items = list(itertools.islice(x, cfg.max_items + 1))
+
+        if len(items) > cfg.max_items:
+            truncated = True
+            items = items[: cfg.max_items]
+
         result = [to_jsonlike(i, cfg, depth + 1) for i in items]
-        if len(list(x)) > cfg.max_items:
+        if truncated:
             result.append("...[TRUNC]")
         return result
 

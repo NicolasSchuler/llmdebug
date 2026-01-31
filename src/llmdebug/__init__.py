@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import sys
 from collections.abc import Callable, Iterable
 from re import Pattern
@@ -10,10 +11,17 @@ from typing import Any
 
 from .capture import capture_exception
 from .config import SnapshotConfig
+from .log_capture import install_log_handler as enable_log_capture
 from .output import get_latest_snapshot
 
 __version__ = "1.0.1"
-__all__ = ["debug_snapshot", "snapshot_section", "SnapshotConfig", "get_latest_snapshot"]
+__all__ = [
+    "debug_snapshot",
+    "snapshot_section",
+    "SnapshotConfig",
+    "get_latest_snapshot",
+    "enable_log_capture",
+]
 
 
 def debug_snapshot(
@@ -30,6 +38,17 @@ def debug_snapshot(
     include_env: bool = True,
     debug: bool = False,
     max_snapshots: int = 50,
+    include_modules: Iterable[str] | None = None,
+    max_exception_depth: int = 5,
+    lock_timeout: float = 5.0,
+    include_git: bool = True,
+    include_array_stats: bool = False,
+    include_args: bool = True,
+    categorize_errors: bool = True,
+    include_async_context: bool = True,
+    capture_logs: bool = False,
+    log_max_records: int = 20,
+    output_format: str = "json_compact",
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that captures debug snapshots on exception.
 
@@ -51,6 +70,17 @@ def debug_snapshot(
         include_env: Include Python/platform info
         debug: Warn on capture failure instead of silent
         max_snapshots: Max snapshots to keep (0 = unlimited)
+        include_modules: Only capture frames from these module prefixes (None = all)
+        max_exception_depth: Max depth for exception chain traversal
+        lock_timeout: Seconds to wait for file lock
+        include_git: Include git commit/branch/dirty status
+        include_array_stats: Include min/max/mean/std for arrays
+        include_args: Separate function arguments from locals
+        categorize_errors: Auto-classify errors with suggestions
+        include_async_context: Include asyncio task info
+        capture_logs: Capture recent log records (requires enable_log_capture())
+        log_max_records: Max log records to capture
+        output_format: Output format: "json", "json_compact", or "toon"
     """
     cfg = SnapshotConfig(
         out_dir=out_dir,
@@ -64,11 +94,23 @@ def debug_snapshot(
         include_env=include_env,
         debug=debug,
         max_snapshots=max_snapshots,
+        include_modules=tuple(include_modules) if include_modules else None,
+        max_exception_depth=max_exception_depth,
+        lock_timeout=lock_timeout,
+        include_git=include_git,
+        include_array_stats=include_array_stats,
+        include_args=include_args,
+        categorize_errors=categorize_errors,
+        include_async_context=include_async_context,
+        capture_logs=capture_logs,
+        log_max_records=log_max_records,
+        output_format=output_format,
     )
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         snap_name = name or fn.__name__
 
+        @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return fn(*args, **kwargs)
@@ -81,8 +123,6 @@ def debug_snapshot(
                         sys.stderr.write(f"llmdebug: capture failed for {snap_name}\n")
                 raise
 
-        wrapper.__name__ = fn.__name__
-        wrapper.__doc__ = fn.__doc__
         return wrapper
 
     return decorator
@@ -103,6 +143,17 @@ def snapshot_section(
     include_env: bool = True,
     debug: bool = False,
     max_snapshots: int = 50,
+    include_modules: Iterable[str] | None = None,
+    max_exception_depth: int = 5,
+    lock_timeout: float = 5.0,
+    include_git: bool = True,
+    include_array_stats: bool = False,
+    include_args: bool = True,
+    categorize_errors: bool = True,
+    include_async_context: bool = True,
+    capture_logs: bool = False,
+    log_max_records: int = 20,
+    output_format: str = "json_compact",
 ):
     """Context manager that captures debug snapshots on exception.
 
@@ -122,6 +173,17 @@ def snapshot_section(
         include_env=include_env,
         debug=debug,
         max_snapshots=max_snapshots,
+        include_modules=tuple(include_modules) if include_modules else None,
+        max_exception_depth=max_exception_depth,
+        lock_timeout=lock_timeout,
+        include_git=include_git,
+        include_array_stats=include_array_stats,
+        include_args=include_args,
+        categorize_errors=categorize_errors,
+        include_async_context=include_async_context,
+        capture_logs=capture_logs,
+        log_max_records=log_max_records,
+        output_format=output_format,
     )
     try:
         yield

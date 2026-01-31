@@ -151,17 +151,40 @@ If locals show the symptom but not the cause:
 
 ```python
 @debug_snapshot(
-    out_dir=".llmdebug",      # Output directory
-    frames=5,                  # Stack frames to capture
-    source_context=3,          # Lines of source before/after crash
-    source_mode="all",         # "all" | "crash_only" | "none"
-    locals_mode="safe",        # "safe" | "meta" | "none"
-    max_str=500,               # Truncate long strings
-    max_items=50,              # Truncate large collections
-    redact=[r"api_key=.*"],    # Regex patterns to redact
-    include_env=True,          # Include Python/platform info
-    max_snapshots=50,          # Auto-cleanup old snapshots (0 = unlimited)
+    out_dir=".llmdebug",       # Output directory
+    frames=5,                   # Stack frames to capture
+    source_context=3,           # Lines of source before/after crash
+    source_mode="all",          # "all" | "crash_only" | "none"
+    locals_mode="safe",         # "safe" | "meta" | "none"
+    max_str=500,                # Truncate long strings
+    max_items=50,               # Truncate large collections
+    redact=[r"api_key=.*"],     # Regex patterns to redact
+    include_env=True,           # Include Python/platform info
+    max_snapshots=50,           # Auto-cleanup old snapshots (0 = unlimited)
+    output_format="json_compact", # "json" | "json_compact" | "toon"
 )
+```
+
+### Output Formats
+
+llmdebug supports multiple output formats to optimize for different use cases:
+
+| Format | Size | Best For |
+|--------|------|----------|
+| `json` | baseline | Human readability, external tools |
+| `json_compact` (default) | ~40% smaller | LLM context efficiency |
+| `toon` | ~50% smaller | Maximum token savings |
+
+**Compact JSON** uses abbreviated keys (e.g., `_exc` instead of `exception`) to reduce token usage. The `get_latest_snapshot()` function auto-expands keys, so your code works identically regardless of format.
+
+**TOON format** requires an optional dependency:
+```bash
+pip install llmdebug[toon]
+```
+
+Set format via environment variable for pytest:
+```bash
+LLMDEBUG_OUTPUT_FORMAT=json pytest  # Use pretty JSON
 ```
 
 ### Pytest Opt-out

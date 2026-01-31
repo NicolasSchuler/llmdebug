@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import inspect as _inspect_module
 import os
 import platform
 import sys
@@ -47,6 +48,17 @@ def _serialize_config(cfg: SnapshotConfig) -> dict[str, Any]:
         "redact": redact,
         "include_env": cfg.include_env,
         "debug": cfg.debug,
+        "include_modules": list(cfg.include_modules) if cfg.include_modules else None,
+        "max_exception_depth": cfg.max_exception_depth,
+        "lock_timeout": cfg.lock_timeout,
+        "include_git": cfg.include_git,
+        "include_array_stats": cfg.include_array_stats,
+        "include_args": cfg.include_args,
+        "categorize_errors": cfg.categorize_errors,
+        "include_async_context": cfg.include_async_context,
+        "capture_logs": cfg.capture_logs,
+        "log_max_records": cfg.log_max_records,
+        "output_format": cfg.output_format,
     }
 
 
@@ -118,6 +130,18 @@ def _summarize_exception(
         )
 
     summary["suppress_context"] = bool(getattr(exc, "__suppress_context__", False))
+
+    # Error categorization (only at top level)
+    if depth == 0 and cfg.categorize_errors:
+        try:
+            from .error_categories import categorize_exception
+
+            category = categorize_exception(exc)
+            if category:
+                summary["error_category"] = category
+        except Exception:
+            pass
+
     return summary
 
 
@@ -154,6 +178,62 @@ def get_source_snippet(filename: str, lineno: int, ctx: int) -> dict[str, Any]:
         return {}
 
 
+def extract_function_args(frame) -> tuple[list[str], dict[str, Any]] | None:
+    """Extract function argument names and values from a frame.
+
+    Returns:
+        Tuple of (arg_names, arg_values) where arg_names is a list of argument
+        names in order, and arg_values is a dict mapping arg names to values.
+        Returns None on error.
+
+    Note: varnames layout is [positional][keyword-only][*args][**kwargs][locals]
+    """
+    try:
+        code = frame.f_code
+        arg_count = code.co_argcount
+        kwonly_count = code.co_kwonlyargcount
+        varnames = code.co_varnames
+        flags = code.co_flags
+
+        arg_names: list[str] = []
+        arg_values: dict[str, Any] = {}
+
+        # Regular positional/keyword args
+        for name in varnames[:arg_count]:
+            arg_names.append(name)
+            if name in frame.f_locals:
+                arg_values[name] = frame.f_locals[name]
+
+        # Track position after positional args
+        pos = arg_count
+
+        # Keyword-only args (come after positional args in varnames)
+        for name in varnames[pos : pos + kwonly_count]:
+            arg_names.append(name)
+            if name in frame.f_locals:
+                arg_values[name] = frame.f_locals[name]
+        pos += kwonly_count
+
+        # Check for *args (CO_VARARGS = 0x04)
+        if flags & _inspect_module.CO_VARARGS:
+            args_name = varnames[pos]
+            arg_names.append(f"*{args_name}")
+            if args_name in frame.f_locals:
+                arg_values[args_name] = frame.f_locals[args_name]
+            pos += 1
+
+        # Check for **kwargs (CO_VARKEYWORDS = 0x08)
+        if flags & _inspect_module.CO_VARKEYWORDS:
+            kwargs_name = varnames[pos]
+            arg_names.append(f"**{kwargs_name}")
+            if kwargs_name in frame.f_locals:
+                arg_values[kwargs_name] = frame.f_locals[kwargs_name]
+
+        return arg_names, arg_values
+    except Exception:
+        return None
+
+
 def collect_frames(tb, cfg: SnapshotConfig) -> list[dict[str, Any]]:
     """Collect stack frames from traceback."""
     redactors = compile_redactors(cfg.redact) if cfg.locals_mode == "safe" else []
@@ -170,8 +250,23 @@ def collect_frames(tb, cfg: SnapshotConfig) -> list[dict[str, Any]]:
         cur = cur.tb_next
     tb_list = tb_list[-cfg.frames :]
 
-    total_frames = len(tb_list)
-    for i, (tb_item, ex_item) in enumerate(zip(tb_list, extracted, strict=True)):
+    # Pair tb_items with extracted items
+    paired = list(zip(tb_list, extracted, strict=True))
+
+    # Apply module filtering if configured
+    if cfg.include_modules is not None:
+        filtered = []
+        for i, (tb_item, ex_item) in enumerate(paired):
+            frame = tb_item.tb_frame
+            module = frame.f_globals.get("__name__", "")
+            is_crash_frame = i == len(paired) - 1
+            matches_filter = any(module.startswith(p) for p in cfg.include_modules)
+            if is_crash_frame or matches_filter:
+                filtered.append((tb_item, ex_item))
+        paired = filtered
+
+    total_frames = len(paired)
+    for i, (tb_item, ex_item) in enumerate(paired):
         frame = tb_item.tb_frame
         lineno = ex_item.lineno or 0
         file_rel = None
@@ -192,6 +287,16 @@ def collect_frames(tb, cfg: SnapshotConfig) -> list[dict[str, Any]]:
             "code": ex_item.line,
         }
 
+        # Mark coroutine frames for async context
+        if cfg.include_async_context:
+            try:
+                from .async_context import is_coroutine_frame
+
+                if is_coroutine_frame(frame):
+                    frame_dict["is_coroutine"] = True
+            except Exception:
+                pass
+
         if cfg.source_mode == "all":
             frame_dict["source"] = get_source_snippet(
                 ex_item.filename, lineno, cfg.source_context
@@ -210,6 +315,15 @@ def collect_frames(tb, cfg: SnapshotConfig) -> list[dict[str, Any]]:
             if truncated:
                 frame_dict["locals_truncated"] = True
                 frame_dict["locals_truncated_keys"] = truncated_keys
+
+            # Separate function arguments
+            if cfg.include_args:
+                arg_info = extract_function_args(frame)
+                if arg_info:
+                    arg_names, arg_values = arg_info
+                    serialized_args, _, _ = serialize_locals_with_stats(arg_values, cfg, redactors)
+                    frame_dict["args"] = serialized_args
+                    frame_dict["arg_names"] = arg_names
         elif cfg.locals_mode == "meta":
             frame_dict["locals_meta"] = locals_metadata(frame.f_locals, cfg)
             try:
@@ -219,6 +333,14 @@ def collect_frames(tb, cfg: SnapshotConfig) -> list[dict[str, Any]]:
             if total_locals is not None and total_locals > cfg.max_items:
                 frame_dict["locals_truncated"] = True
                 frame_dict["locals_truncated_keys"] = total_locals - cfg.max_items
+
+            # Separate function arguments (metadata only)
+            if cfg.include_args:
+                arg_info = extract_function_args(frame)
+                if arg_info:
+                    arg_names, arg_values = arg_info
+                    frame_dict["args_meta"] = locals_metadata(arg_values, cfg)
+                    frame_dict["arg_names"] = arg_names
 
         frames_out.append(frame_dict)
 
@@ -240,7 +362,7 @@ def capture_exception(
         "schema_version": SCHEMA_VERSION,
         "name": name,
         "timestamp_utc": dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "exception": _summarize_exception(exc, cfg),
+        "exception": _summarize_exception(exc, cfg, max_depth=cfg.max_exception_depth),
         "traceback": "".join(traceback.format_exception(type(exc), exc, tb)),
         "frames": frames,
         "capture_config": _serialize_config(cfg),
@@ -250,6 +372,39 @@ def capture_exception(
 
     if cfg.include_env:
         payload["env"] = get_env_info(cfg)
+
+    # Git context
+    if cfg.include_git:
+        try:
+            from .git_context import get_git_context
+
+            git_ctx = get_git_context()
+            if git_ctx:
+                payload["git"] = git_ctx
+        except Exception:
+            pass
+
+    # Async context
+    if cfg.include_async_context:
+        try:
+            from .async_context import get_async_context
+
+            async_ctx = get_async_context()
+            if async_ctx:
+                payload["async"] = async_ctx
+        except Exception:
+            pass
+
+    # Recent logs
+    if cfg.capture_logs:
+        try:
+            from .log_capture import get_recent_logs
+
+            logs = get_recent_logs(cfg.log_max_records)
+            if logs:
+                payload["recent_logs"] = logs
+        except Exception:
+            pass
 
     if extra:
         payload.update(extra)

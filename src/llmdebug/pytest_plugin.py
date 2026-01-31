@@ -45,7 +45,71 @@ def pytest_runtest_makereport(item, call):
     name = item.nodeid.replace("/", "_").replace("::", "_")
 
     debug = os.getenv("LLMDEBUG_DEBUG", "").lower() in {"1", "true", "yes", "on"}
-    cfg = SnapshotConfig(debug=debug)
+
+    # Parse include_modules from comma-separated env var
+    include_modules_env = os.getenv("LLMDEBUG_INCLUDE_MODULES", "")
+    include_modules = (
+        tuple(m.strip() for m in include_modules_env.split(",") if m.strip())
+        if include_modules_env
+        else None
+    )
+
+    # Parse max_exception_depth from env var
+    try:
+        max_exception_depth = int(os.getenv("LLMDEBUG_MAX_EXCEPTION_DEPTH", "5"))
+    except ValueError:
+        max_exception_depth = 5
+
+    # Parse new feature flags from env vars
+    include_git = os.getenv("LLMDEBUG_INCLUDE_GIT", "true").lower() in {"1", "true", "yes", "on"}
+    include_array_stats = os.getenv("LLMDEBUG_ARRAY_STATS", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    include_args = os.getenv("LLMDEBUG_INCLUDE_ARGS", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    categorize_errors = os.getenv("LLMDEBUG_CATEGORIZE_ERRORS", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    include_async_context = os.getenv("LLMDEBUG_ASYNC_CONTEXT", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    capture_logs = os.getenv("LLMDEBUG_CAPTURE_LOGS", "").lower() in {"1", "true", "yes", "on"}
+    try:
+        log_max_records = int(os.getenv("LLMDEBUG_LOG_MAX_RECORDS", "20"))
+    except ValueError:
+        log_max_records = 20
+
+    # Output format: json, json_compact (default), or toon
+    output_format = os.getenv("LLMDEBUG_OUTPUT_FORMAT", "json_compact")
+    if output_format not in {"json", "json_compact", "toon"}:
+        output_format = "json_compact"
+
+    cfg = SnapshotConfig(
+        debug=debug,
+        include_modules=include_modules,
+        max_exception_depth=max_exception_depth,
+        include_git=include_git,
+        include_array_stats=include_array_stats,
+        include_args=include_args,
+        categorize_errors=categorize_errors,
+        include_async_context=include_async_context,
+        capture_logs=capture_logs,
+        log_max_records=log_max_records,
+        output_format=output_format,
+    )
 
     # Pytest-specific context to reduce guesswork
     params = None

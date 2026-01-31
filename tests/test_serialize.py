@@ -1,9 +1,18 @@
 """Tests for serialization."""
 
+import re
+
 import pytest
 
 from llmdebug.config import SnapshotConfig
-from llmdebug.serialize import summarize_array, to_jsonlike
+from llmdebug.serialize import (
+    compile_redactors,
+    compute_array_stats,
+    redact_text,
+    serialize_locals,
+    summarize_array,
+    to_jsonlike,
+)
 
 
 def _has_module(name: str) -> bool:
@@ -159,3 +168,241 @@ def test_jax_array_summary():
 
     # JAX doesn't have requires_grad (uses functional transforms)
     assert "requires_grad" not in result
+
+
+# ============================================================================
+# Redaction Tests
+# ============================================================================
+
+
+def test_redact_text_basic():
+    """Test direct redact_text function with simple pattern."""
+    redactors = compile_redactors(("password",))
+    result = redact_text("my password is secret", redactors)
+    assert result == "my [REDACTED] is secret"
+
+
+def test_redact_text_compiled_pattern():
+    """Test redact_text with pre-compiled regex Pattern."""
+    pattern = re.compile(r"api[_-]?key", re.IGNORECASE)
+    redactors = compile_redactors((pattern,))
+
+    result = redact_text("my API_KEY is abc123", redactors)
+    assert "[REDACTED]" in result
+    assert "API_KEY" not in result
+
+
+def test_redact_text_multiple_patterns():
+    """Test redact_text with multiple patterns."""
+    redactors = compile_redactors(("password", "secret", "token"))
+    result = redact_text("password=abc, secret=xyz, token=123", redactors)
+    assert result == "[REDACTED]=abc, [REDACTED]=xyz, [REDACTED]=123"
+
+
+def test_serialize_locals_redacts_password():
+    """Test that sensitive patterns are redacted in serialized locals.
+
+    Note: redaction replaces the pattern wherever it appears in the JSON,
+    which means keys like "password" become "[REDACTED]", not their values.
+    """
+    cfg = SnapshotConfig(redact=("password", "secret"))
+    redactors = compile_redactors(cfg.redact)
+
+    local_vars = {
+        "password": "hunter2",
+        "username": "alice",
+        "secret_key": "abc123",
+    }
+
+    result = serialize_locals(local_vars, cfg, redactors)
+    result_str = str(result)
+
+    # The key "password" should be redacted to "[REDACTED]"
+    assert "password" not in result_str
+    assert "[REDACTED]" in result_str
+    # The key "secret_key" should become "[REDACTED]_key"
+    assert "secret_key" not in result_str
+    # Non-sensitive values should remain
+    assert result["username"] == "alice"
+
+
+def test_serialize_locals_redacts_nested_dict():
+    """Test that redaction works in nested structures.
+
+    The redaction replaces the pattern "password" in the JSON key,
+    not the value. To redact values, use patterns matching the values themselves.
+    """
+    cfg = SnapshotConfig(redact=("password",))
+    redactors = compile_redactors(cfg.redact)
+
+    local_vars = {
+        "config": {
+            "database": {
+                "password": "secret123",
+                "host": "localhost",
+            }
+        }
+    }
+
+    result = serialize_locals(local_vars, cfg, redactors)
+
+    # The nested key "password" should be redacted
+    result_str = str(result)
+    assert "password" not in result_str
+    assert "[REDACTED]" in result_str
+    assert "localhost" in result_str
+
+
+def test_serialize_locals_redacts_in_arrays():
+    """Test that redaction works in array/list elements."""
+    cfg = SnapshotConfig(redact=("password",))
+    redactors = compile_redactors(cfg.redact)
+
+    local_vars = {
+        "credentials": ["user1:password123", "user2:safe"],
+    }
+
+    result = serialize_locals(local_vars, cfg, redactors)
+
+    result_str = str(result)
+    # "password123" should be partially redacted (the "password" part)
+    assert "[REDACTED]" in result_str
+
+
+def test_serialize_locals_no_redaction_when_empty():
+    """Test that empty redact list doesn't modify values."""
+    cfg = SnapshotConfig(redact=())
+    redactors = compile_redactors(cfg.redact)
+
+    local_vars = {
+        "password": "hunter2",
+        "secret": "abc123",
+    }
+
+    result = serialize_locals(local_vars, cfg, redactors)
+
+    # Without redaction patterns, values should be preserved
+    assert result["password"] == "hunter2"
+    assert result["secret"] == "abc123"
+
+
+def test_redact_text_regex_pattern():
+    """Test redact_text with regex metacharacters."""
+    # Pattern to match API keys like "sk-abc123..."
+    pattern = re.compile(r"sk-[a-zA-Z0-9]+")
+    redactors = compile_redactors((pattern,))
+
+    result = redact_text("API key: sk-abc123XYZ", redactors)
+    assert result == "API key: [REDACTED]"
+    assert "sk-" not in result
+
+
+# ============================================================================
+# Array Statistics Tests
+# ============================================================================
+
+
+@pytest.mark.skipif(not _has_module("numpy"), reason="numpy not installed")
+def test_compute_array_stats_numpy():
+    """Test statistical computation for numpy arrays."""
+    import numpy as np
+
+    arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    stats = compute_array_stats(arr)
+
+    assert stats is not None
+    assert stats["min"] == 1.0
+    assert stats["max"] == 5.0
+    assert stats["mean"] == 3.0
+    # std is population std
+    assert abs(stats["std"] - 1.4142135) < 0.001
+
+
+@pytest.mark.skipif(not _has_module("numpy"), reason="numpy not installed")
+def test_compute_array_stats_empty_array():
+    """Test that empty arrays return None for stats."""
+    import numpy as np
+
+    arr = np.array([])
+    stats = compute_array_stats(arr)
+
+    assert stats is None
+
+
+@pytest.mark.skipif(not _has_module("numpy"), reason="numpy not installed")
+def test_compute_array_stats_non_numeric():
+    """Test that non-numeric arrays return None for stats."""
+    import numpy as np
+
+    arr = np.array(["a", "b", "c"])
+    stats = compute_array_stats(arr)
+
+    assert stats is None
+
+
+@pytest.mark.skipif(not _has_module("numpy"), reason="numpy not installed")
+def test_compute_array_stats_integer():
+    """Test stats for integer arrays."""
+    import numpy as np
+
+    arr = np.array([1, 2, 3, 4, 5], dtype=np.int32)
+    stats = compute_array_stats(arr)
+
+    assert stats is not None
+    assert stats["min"] == 1.0
+    assert stats["max"] == 5.0
+
+
+@pytest.mark.skipif(not _has_module("numpy"), reason="numpy not installed")
+def test_summarize_array_with_stats():
+    """Test array summary includes stats when configured."""
+    import numpy as np
+
+    cfg = SnapshotConfig(include_array_stats=True)
+    arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+
+    result = summarize_array(arr, cfg)
+
+    assert "stats" in result
+    assert result["stats"]["min"] == 1.0
+    assert result["stats"]["max"] == 5.0
+
+
+@pytest.mark.skipif(not _has_module("numpy"), reason="numpy not installed")
+def test_summarize_array_without_stats():
+    """Test array summary excludes stats by default."""
+    import numpy as np
+
+    cfg = SnapshotConfig(include_array_stats=False)
+    arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+
+    result = summarize_array(arr, cfg)
+
+    assert "stats" not in result
+
+
+@pytest.mark.skipif(not _has_module("torch"), reason="torch not installed")
+def test_compute_array_stats_pytorch():
+    """Test statistical computation for PyTorch tensors."""
+    import torch  # type: ignore[import-not-found]
+
+    arr = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0])
+    stats = compute_array_stats(arr)
+
+    assert stats is not None
+    assert stats["min"] == 1.0
+    assert stats["max"] == 5.0
+    assert stats["mean"] == 3.0
+
+
+@pytest.mark.skipif(not _has_module("jax"), reason="jax not installed")
+def test_compute_array_stats_jax():
+    """Test statistical computation for JAX arrays."""
+    import jax.numpy as jnp  # type: ignore[import-not-found]
+
+    arr = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    stats = compute_array_stats(arr)
+
+    assert stats is not None
+    assert stats["min"] == 1.0
+    assert stats["max"] == 5.0
