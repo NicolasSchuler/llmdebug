@@ -14,7 +14,7 @@ from .config import SnapshotConfig
 from .log_capture import install_log_handler as enable_log_capture
 from .output import get_latest_snapshot
 
-__version__ = "1.0.1"
+__version__ = "2.0.0"
 __all__ = [
     "debug_snapshot",
     "snapshot_section",
